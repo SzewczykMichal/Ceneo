@@ -18,7 +18,7 @@ if respons.status_code == requests.codes.ok:
                 "author": page_dom.select("user-post__author-name"),
                 "recommendation:": page_dom.select("user-post__author-recomendation"),
                 "stars": page_dom.select("user-post__score-count"),
-                "purchased": page_dom.select("review-pz"),
+                "purchased": page_dom.select("div.review-pz"),
                 "opinion_date":page_dom.select("div.js_product-review") ,
                 "purchse_date": page_dom.select("div.js_product-review"), 
                 "usefull_count": page_dom.select("votes-yes"),
