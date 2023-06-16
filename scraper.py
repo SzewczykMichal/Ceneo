@@ -1,61 +1,64 @@
 import os
 import json
-import requests
-from bs4 import BeautifulSoup
+import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
 
-def get_cos(ancestor, selector=None, attribute=None, return_list=False):
-    try:
-        if return_list:
-            return [tag.get_text().strip() for tag in ancestor.select(selector)]
-        if not selector and attribute:
-            return ancestor[attribute].strip()
-        if attribute:
-            return ancestor.select_one(selector)[attribute].strip()
-        return ancestor.select_one(selector).get_text().strip()
-    except (AttributeError, TypeError):
-        return None
-
-selectors = {
-    "opinion_id": (None, "data-entry-id"),
-    "author": ("span.user-post__author-name",),
-    "recommendation": ("span.user-post__author-recomendation > em",),
-    "stars": ("span.user-post__score-count",),
-    "purchased": ("div.review-pz",),
-    "opinion_date": ("span.user-post__published > time:nth-child(1)","datetime"),
-    "purchase_date": ("span.user-post__published > time:nth-child(2)","datetime"),
-    "usefull_count": ("button.vote-yes","data-total-vote"),
-    "unusefull_count": ("button.vote-no","data-total-vote"),
-    "content": ("div.user-post__text",),
-    "pros": ("div.review-feature__title--positives ~ div.review-feature__item", None, True),
-    "cons": ("div.review-feature__title--negatives ~ div.review-feature__item", None, True)
-}
-
-product_code = input("Podaj kod produktu: ")
-# product_code = "58835954"
-# product_code = "39562616"
-url = f"https://www.ceneo.pl/{product_code}#tab=reviews"
-opinions_all = []
-while(url):
-    print(url)
-    respons = requests.get(url)
-    if  respons.status_code == requests.codes.ok:
-        page_dom = BeautifulSoup(respons.text, 'html.parser')
-        opinions = page_dom.select("div.js_product-review")
-        for opinion in opinions:
-            single_opinion = {}
-            for key, value in selectors.items():
-                single_opinion[key] = get_cos(opinion, *value)
-            opinions_all.append(single_opinion)
-    try:
-        url = "https://www.ceneo.pl"+get_cos(page_dom,"a.pagination__next","href")
-    except TypeError:
-        url = None
 try:
-    os.mkdir("opinions")
+    os.mkdir("charts")
 except FileExistsError:
-    pass
-# jf = open(f"opinions/{product_code}.json", "w", encoding="UTF-8")
-# json.dump(opinions_all, jf, indent=4, ensure_ascii=False)
-# jf.close()
-with open(f"opinions/{product_code}.json", "w", encoding="UTF-8") as jf:
-    json.dump(opinions_all, jf, indent=4, ensure_ascii=False)
+   pass
+try:
+    os.mkdir("stats")
+except FileExistsError:
+   pass
+# print(*[filename.removesuffix(".json") for filename in os.listdir("opinions")], sep="\n")
+print(*list(map(lambda x: x.removesuffix(".json"), os.listdir("opinions"))), sep="\n")
+product_code = input("Podaj kod produktu: ")
+opinions = pd.read_json(f"opinions/{product_code}.json")
+opinions.stars = opinions.stars.map(lambda x: float(x.split("/")[0].replace(",",".")))
+stats = {
+    # 'opinions_count': len(opinions),
+    'opinions_count': int(opinions.shape[0]),
+    'pros_count': int(opinions.pros.map(bool).sum()),
+    'cons_count': int(opinions.cons.map(bool).sum()),
+    'average_score': float(opinions.stars.mean())
+}
+print(f"""Dla produktu o identyfikatorze {product_code}
+pobrano {stats["opinions_count"]} opinii. 
+Dla {stats["pros_count"]} opinii podana została lista zalet produktu, 
+a dla {stats["cons_count"]} opinii podana została lista jego wad.
+Średnia ocena produktu wynosi {stats["average_score"]:.2f}.""")
+colors_stars = {}
+for i in np.arange(0,5.5,0.5):
+    colors_stars[i] = "crimson" if i <= 2.5 else "steelblue" if i <= 3.5 else "forestgreen"
+stars = opinions.stars.value_counts().reindex(list(np.arange(0,5.5,0.5)), fill_value=0)
+stars.plot.bar(color=colors_stars.values())
+plt.xticks(rotation='horizontal')
+plt.title("Rozkład liczby gwiazdek w opiniach konsumentów")
+plt.xlabel("Liczba gwiazdek")
+plt.ylabel("Liczba opinii")
+plt.ylim(0,max(stars)+10)
+for index, value in enumerate(stars):
+    plt.text(index, value+0.5, str(value), ha = "center")
+plt.savefig(f"charts/{product_code}_stars.png")
+plt.close()
+
+recommendations = opinions["recommendation"].value_counts(dropna = False).reindex(["Polecam","Nie polecam",None], fill_value=0)
+recommendations.plot.pie(
+    label="", 
+    autopct= lambda p: '{:.1f}%'.format(round(p)) if p > 0 else '',
+    labels = ["Polecam", "Nie polecam", "Nie mam zdania"],
+    colors = ["forestgreen", "crimson", "steelblue"]
+)
+plt.legend(loc='upper center', ncol=3)
+plt.title("Rozkład rekomendacji w opiniach konsumentów")
+plt.savefig(f"./charts/{product_code}_recommendation.png")
+plt.close()
+
+stats['stars'] = stars.to_dict()
+stats['recommendations'] = recommendations.to_dict()
+
+print(stats)
+with open(f"stats/{product_code}.json", "w", encoding="UTF-8") as jf:
+    json.dump(stats, jf, indent=4, ensure_ascii=False)
